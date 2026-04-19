@@ -120,3 +120,18 @@ npm run dev
 ## 许可证
 
 本仓库采用 [MIT License](./LICENSE)。
+
+## 捐赠
+如果您可以的话，欢迎您捐赠
+[PayPal](http://paypal.me/lixigang)
+<img width="1170" height="1755" alt="35628937bfbec4027616135f6187e181" src="https://github.com/user-attachments/assets/d43e2ac1-2634-439d-b14e-40dc98a2ef46" />
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=BoatingCloud%2FWenText&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=BoatingCloud/WenText&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=BoatingCloud/WenText&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=BoatingCloud/WenText&type=date&legend=top-left" />
+ </picture>
+</a>
