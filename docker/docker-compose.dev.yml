@@ -1,0 +1,173 @@
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:16-alpine
+    container_name: wenyu-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: wenyu
+      POSTGRES_PASSWORD: wenyu123
+      POSTGRES_DB: wenyu
+    volumes:
+      - ../docker-data/postgres:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wenyu"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    container_name: wenyu-redis-dev
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - ../docker-data/redis:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MinIO 对象存储
+  minio:
+    image: minio/minio:latest
+    container_name: wenyu-minio-dev
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - ../docker-data/minio:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Elasticsearch 搜索引擎
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+    container_name: wenyu-elasticsearch-dev
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - ../docker-data/elasticsearch:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # 后端服务 - 开发模式
+  server:
+    image: node:20-alpine
+    container_name: wenyu-server-dev
+    restart: unless-stopped
+    working_dir: /app
+    command: sh -c "npm install && npx prisma generate && npx prisma migrate deploy && npm run dev"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DB_TYPE: postgresql
+      DATABASE_URL: postgresql://wenyu:wenyu123@postgres:5432/wenyu?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: your-production-jwt-secret-change-this
+      ENCRYPTION_KEY: your-32-character-encryption-key
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: wenyu
+      ELASTICSEARCH_NODE: http://elasticsearch:9200
+      CORS_ORIGIN: http://localhost,http://localhost:80,http://localhost:5173,http://localhost:5174
+      STORAGE_BASE_PATH: /data/storage
+      STORAGE_BACKUP_BASE_PATH: /data/storage-backup
+      ONLYOFFICE_ENABLED: "true"
+      ONLYOFFICE_URL: http://localhost:3001
+      ONLYOFFICE_SERVICE_URL: http://onlyoffice
+      ONLYOFFICE_INTERNAL_SERVER_URL: http://server:3000
+      ONLYOFFICE_JWT_SECRET: viewmatrix
+    volumes:
+      - ../server:/app
+      - ../docker-data/storage:/data/storage
+      - ../docker-data/storage-backup:/data/storage-backup
+      - ../docker-data/logs:/var/log/wenyu
+      - /app/node_modules
+      - /app/dist
+    ports:
+      - "3000:3000"
+
+  # OnlyOffice 在线编辑
+  onlyoffice:
+    image: onlyoffice/documentserver:latest
+    container_name: wenyu-onlyoffice-dev
+    restart: unless-stopped
+    environment:
+      JWT_ENABLED: "false"
+      ALLOW_PRIVATE_IP_ADDRESS: "true"
+      ALLOW_META_IP_ADDRESS: "true"
+    volumes:
+      - ../docker-data/onlyoffice:/var/www/onlyoffice/Data
+      - ../docker-data/onlyoffice-logs:/var/log/onlyoffice
+    ports:
+      - "3001:80"
+
+  # 前端应用 - 开发模式
+  client:
+    image: node:20-alpine
+    container_name: wenyu-client-dev
+    restart: unless-stopped
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      - server
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ../client:/app
+      - /app/node_modules
+      - /app/dist
+    ports:
+      - "5173:5173"
+
+  # 管理后台 - 开发模式
+  admin:
+    image: node:20-alpine
+    container_name: wenyu-admin-dev
+    restart: unless-stopped
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      - server
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ../admin:/app
+      - /app/node_modules
+      - /app/dist
+    ports:
+      - "5174:5174"
+
+networks:
+  default:
+    name: wenyu-network-dev

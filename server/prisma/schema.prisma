@@ -1,0 +1,1075 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 用户表
+model User {
+  id            String    @id @default(uuid())
+  username      String    @unique
+  email         String    @unique
+  password      String
+  name          String
+  avatar        String?
+  phone         String?
+  status        UserStatus @default(ACTIVE)
+  lastLoginAt   DateTime?
+  lastLoginIp   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  departmentId  String?
+  department    Department? @relation(fields: [departmentId], references: [id])
+
+  roles         UserRole[]
+  documents     Document[]
+  physicalArchives PhysicalArchive[]
+  physicalArchiveBorrowRecords PhysicalArchiveBorrowRecord[]
+  archiveAttachments  PhysicalArchiveAttachment[] @relation("ArchiveAttachmentUploader")
+  borrowApplications  BorrowRequest[]      @relation("BorrowApplicant")
+  borrowApprovals     BorrowApprovalRecord[] @relation("BorrowApprover")
+  approvalTodos       ApprovalTodo[]
+  shares        Share[]
+  auditLogs     AuditLog[]
+  sessions      Session[]
+
+  // 新增：用户数据权限（公司范围）和仓库权限
+  companyScopes    UserCompanyScope[]
+  repositoryScopes UserRepositoryScope[]
+  physicalArchiveScopes UserPhysicalArchiveScope[]
+  archiveCompanyScopes UserArchiveCompanyScope[]
+  documentReviewScopes UserDocumentReviewScope[]
+
+  // 文档审查相关
+  reviewsInitiated      DocumentReview[]         @relation("ReviewInitiator")
+  reviewAttachments     DocumentReviewAttachment[] @relation("ReviewAttachmentUploader")
+  reviewApprovals       ReviewApprovalRecord[]   @relation("ReviewApprover")
+  annotations           ManualReviewAnnotation[] @relation("ManualAnnotator")
+  annotationComments    AnnotationComment[]      @relation("AnnotationCommenter")
+
+  @@index([departmentId])
+  @@index([status])
+  @@map("users")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  LOCKED
+}
+
+// 部门表
+model Department {
+  id          String      @id @default(uuid())
+  name        String
+  code        String      @unique
+  description String?
+  parentId    String?
+  parent      Department? @relation("DepartmentTree", fields: [parentId], references: [id])
+  children    Department[] @relation("DepartmentTree")
+  sortOrder   Int         @default(0)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  users       User[]
+  documentReviews DocumentReview[]
+
+  @@index([parentId])
+  @@map("departments")
+}
+
+// 角色表
+model Role {
+  id          String      @id @default(uuid())
+  name        String      @unique
+  code        String      @unique
+  description String?
+  isSystem    Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  permissions        RolePermission[]
+  users              UserRole[]
+  archivePermissions RoleArchivePermission[]
+
+  @@map("roles")
+}
+
+// 权限表
+model Permission {
+  id          String      @id @default(uuid())
+  name        String
+  code        String      @unique
+  description String?
+  module      String
+  createdAt   DateTime    @default(now())
+
+  roles       RolePermission[]
+
+  @@index([module])
+  @@map("permissions")
+}
+
+// 用户角色关联表
+model UserRole {
+  id        String   @id @default(uuid())
+  userId    String
+  roleId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+// 角色权限关联表
+model RolePermission {
+  id           String     @id @default(uuid())
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+// 角色档案权限表（按钮级别权限）
+model RoleArchivePermission {
+  id          String   @id @default(uuid())
+  roleId      String
+  companyCode String
+  permissions String[] // 权限列表：view, create, edit, delete, borrow, return, approve, destroy 等
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  role        Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, companyCode])
+  @@index([companyCode])
+  @@map("role_archive_permissions")
+}
+
+// 仓库表
+model Repository {
+  id              String          @id @default(uuid())
+  name            String
+  code            String          @unique
+  description     String?
+  storageType     StorageType
+  storagePath     String
+  storageConfig   Json?
+  versionEnabled  Boolean         @default(true)
+  maxVersions     Int             @default(100)
+  encryptEnabled  Boolean         @default(false)
+  encryptAlgorithm String?
+  status          RepoStatus      @default(ACTIVE)
+  totalSize       BigInt          @default(0)
+  fileCount       Int             @default(0)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  // 新增：仓库所属公司（来源于 companyCatalog.code）
+  companyCode     String?
+
+  documents       Document[]
+  permissions     RepoPermission[]
+  userScopes      UserRepositoryScope[]
+
+  @@index([companyCode, status])
+  @@map("repositories")
+}
+
+enum StorageType {
+  LOCAL
+  FTP
+  SFTP
+  SMB
+  SVN
+  GIT
+  MINIO
+  S3
+}
+
+enum RepoStatus {
+  ACTIVE
+  READONLY
+  ARCHIVED
+  DELETED
+}
+
+// 仓库权限表
+model RepoPermission {
+  id           String         @id @default(uuid())
+  repositoryId String
+  repository   Repository     @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  targetType   PermissionTarget
+  targetId     String
+  permissions  String[]
+  dataScope    DataScope      @default(ALL)
+  scopePaths   String[]       @default([])
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@unique([repositoryId, targetType, targetId])
+  @@map("repo_permissions")
+}
+
+enum PermissionTarget {
+  USER
+  ROLE
+  DEPARTMENT
+}
+
+enum DataScope {
+  ALL
+  DEPARTMENT
+  PERSONAL
+  CUSTOM
+}
+
+// 用户公司范围表（数据权限）
+model UserCompanyScope {
+  id          String   @id @default(uuid())
+  userId      String
+  companyCode String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, companyCode])
+  @@index([companyCode])
+  @@map("user_company_scopes")
+}
+
+// 用户仓库范围表（仓库权限）
+model UserRepositoryScope {
+  id           String     @id @default(uuid())
+  userId       String
+  repositoryId String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, repositoryId])
+  @@index([repositoryId])
+  @@map("user_repository_scopes")
+}
+
+// 用户实体档案权限（白名单）
+model UserPhysicalArchiveScope {
+  id                String          @id @default(uuid())
+  userId            String
+  physicalArchiveId String
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  physicalArchive   PhysicalArchive @relation(fields: [physicalArchiveId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, physicalArchiveId])
+  @@index([physicalArchiveId])
+  @@map("user_physical_archive_scopes")
+}
+
+// 用户档案公司范围表（档案公司权限）
+model UserArchiveCompanyScope {
+  id          String   @id @default(uuid())
+  userId      String
+  companyCode String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, companyCode])
+  @@index([companyCode])
+  @@map("user_archive_company_scopes")
+}
+
+// 用户文档审查公司范围表（文档审查公司权限）
+model UserDocumentReviewScope {
+  id          String   @id @default(uuid())
+  userId      String
+  companyCode String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, companyCode])
+  @@index([companyCode])
+  @@map("user_document_review_scopes")
+}
+
+// 文档表
+model Document {
+  id            String        @id @default(uuid())
+  repositoryId  String
+  repository    Repository    @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  parentId      String?
+  parent        Document?     @relation("DocumentTree", fields: [parentId], references: [id])
+  children      Document[]    @relation("DocumentTree")
+  name          String
+  path          String
+  type          DocumentType
+  mimeType      String?
+  size          BigInt        @default(0)
+  md5           String?
+  extension     String?
+  isEncrypted   Boolean       @default(false)
+  creatorId     String
+  creator       User          @relation(fields: [creatorId], references: [id])
+  status        DocStatus     @default(NORMAL)
+  deletedAt     DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  versions      DocumentVersion[]
+  shares        Share[]
+  tags          DocumentTag[]
+  locks         DocumentLock[]
+
+  @@unique([repositoryId, path])
+  @@index([repositoryId, parentId])
+  @@index([creatorId])
+  @@index([status])
+  @@map("documents")
+}
+
+enum DocumentType {
+  FILE
+  FOLDER
+}
+
+enum DocStatus {
+  NORMAL
+  DELETED
+  ARCHIVED
+}
+
+enum PhysicalArchiveStatus {
+  IN_STOCK
+  BORROWED
+  LOST
+  DESTROYED
+}
+
+enum PhysicalArchiveBorrowAction {
+  BORROW
+  RETURN
+}
+
+enum ArchiveWorkflowStatus {
+  DRAFT
+  PENDING_REVIEW
+  ARCHIVED
+  MODIFIED
+  BORROWED
+  RETURNED
+  DESTROYED
+}
+
+enum ArchiveVersionStatus {
+  DRAFT
+  FINAL
+  ABOLISHED
+}
+
+model PhysicalArchive {
+  // 基础信息类
+  id                String                @id @default(uuid())
+  title             String
+  archiveNo         String                @unique
+  archiveCode       String?
+  subtitle          String?
+  categoryName      String?
+  categoryPath      String?
+  categoryId        String?
+  fondsName         String?
+  fondsCode         String?
+  year              Int?
+  language          String?
+  carrierType       String?
+  archiveForm       String?
+
+  // 业务信息类
+  fileNo            String?
+  fileType          String?
+  responsibleParty  String?
+  responsibleCode   String?
+  filingDate        DateTime?
+  effectiveDate     DateTime?
+  invalidDate       DateTime?
+  shelfLocation     String
+  retentionPeriod   String?
+  securityLevel     String?
+  formedAt          DateTime?
+  expiresAt         DateTime?
+  copies            Int                   @default(1)
+  pages             Int?
+  attachmentCount   Int?
+  summary           String?
+  keywords          String[]              @default([])
+  subjectTerms      String?
+  documentGenre     String?
+  urgencyLevel      String?
+
+  // 管理信息类
+  workflowStatus    ArchiveWorkflowStatus @default(DRAFT)
+  filingDepartment  String?
+  responsibleUnit   String?
+  belongCategory    String?
+  transferDepartment String?
+  transferPerson    String?
+  transferDate      DateTime?
+  receiver          String?
+  receiveDate       DateTime?
+  storageLocation   String?
+  shelfNo           String?
+  volumeNo          String?
+  itemNo            String?
+  controlMark       String?
+  appraisalStatus   String?
+  appraiser         String?
+  appraisalDate     DateTime?
+  boxNo             String?
+
+  // 权限/借阅及主记录状态
+  status            PhysicalArchiveStatus @default(IN_STOCK)
+  borrower          String?
+  borrowedAt        DateTime?
+  borrowRemark      String?
+  tags              String[]              @default([])
+
+  // 电子文件信息类
+  electronicFileId  String?
+  originalFileName  String?
+  fileExtension     String?
+  fileSizeBytes     BigInt?
+  fileStoragePath   String?
+  storageMethod     String?
+  fileMd5           String?
+  ocrText           String?
+  thumbnailPath     String?
+  transferStatus    String?
+  digitizationStatus String?
+
+  // 版本信息类
+  versionNo         String?               @default("V1.0")
+  revisionNo        Int                   @default(1)
+  previousVersionNo String?
+  versionRemark     String?
+  versionStatus     ArchiveVersionStatus  @default(FINAL)
+  isCurrentVersion  Boolean               @default(true)
+  versionHistory    String[]              @default([])
+
+  // 关联信息类
+  parentArchiveId   String?
+  rootArchiveId     String?
+  relatedArchiveIds String[]              @default([])
+  predecessorArchiveId String?
+  successorArchiveId String?
+  replacedArchiveId String?
+  copiedFromArchiveId String?
+
+  // 权限安全类
+  ownerName         String?
+  ownerDepartment   String?
+  accessLevel       String?
+  accessPolicy      String?
+  watermarkConfig   String?
+  encryptionAlgorithm String?
+  encryptionStatus  String?
+  tamperProofHash   String?
+
+  // 审计信息类
+  creatorDepartment String?
+  updatedById       String?
+  reviewer          String?
+  reviewedAt        DateTime?
+  reviewComment     String?
+  filer             String?
+  filedAt           DateTime?
+  destroyer         String?
+  destroyedAt       DateTime?
+  destroyReason     String?
+  lastAccessedBy    String?
+  lastAccessedAt    DateTime?
+
+  // 扩展信息类
+  customText1       String?
+  customText2       String?
+  customText3       String?
+  customNumber      Float?
+  customDate        DateTime?
+  extraJson         Json?
+
+  remark            String?
+  companyCode       String?
+
+  creatorId         String
+  creator           User                  @relation(fields: [creatorId], references: [id])
+  borrowRecords     PhysicalArchiveBorrowRecord[]
+  borrowRequests    BorrowRequest[]
+  attachments       PhysicalArchiveAttachment[]
+  userScopes        UserPhysicalArchiveScope[]
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@index([title])
+  @@index([status])
+  @@index([workflowStatus])
+  @@index([year])
+  @@index([creatorId])
+  @@index([fondsName])
+  @@index([fileNo])
+  @@index([responsibleParty])
+  @@index([companyCode])
+  @@map("physical_archives")
+}
+
+model PhysicalArchiveBorrowRecord {
+  id          String                      @id @default(uuid())
+  archiveId   String
+  archive     PhysicalArchive             @relation(fields: [archiveId], references: [id], onDelete: Cascade)
+  action      PhysicalArchiveBorrowAction
+  borrower    String?
+  borrowedAt  DateTime?
+  returnedAt  DateTime?
+  dueAt       DateTime?
+  remark      String?
+  operatorId  String?
+  operator    User?                       @relation(fields: [operatorId], references: [id], onDelete: SetNull)
+  createdAt   DateTime                    @default(now())
+
+  @@index([archiveId])
+  @@index([action])
+  @@index([createdAt])
+  @@index([operatorId])
+  @@map("physical_archive_borrow_records")
+}
+
+// 文档版本表
+model DocumentVersion {
+  id          String    @id @default(uuid())
+  documentId  String
+  document    Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  version     Int
+  size        BigInt
+  md5         String
+  storagePath String
+  commitMessage String?
+  creatorId   String
+  createdAt   DateTime  @default(now())
+
+  @@unique([documentId, version])
+  @@index([documentId])
+  @@map("document_versions")
+}
+
+// 文档标签表
+model Tag {
+  id        String        @id @default(uuid())
+  name      String        @unique
+  color     String?
+  createdAt DateTime      @default(now())
+
+  documents DocumentTag[]
+
+  @@map("tags")
+}
+
+// 文档标签关联表
+model DocumentTag {
+  id         String   @id @default(uuid())
+  documentId String
+  tagId      String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([documentId, tagId])
+  @@map("document_tags")
+}
+
+// 文档锁定表
+model DocumentLock {
+  id         String   @id @default(uuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  userId     String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  @@unique([documentId])
+  @@map("document_locks")
+}
+
+// 分享表
+model Share {
+  id           String      @id @default(uuid())
+  code         String      @unique
+  documentId   String
+  document     Document    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  creatorId    String
+  creator      User        @relation(fields: [creatorId], references: [id])
+  shareType    ShareType
+  password     String?
+  permissions  String[]
+  expiresAt    DateTime?
+  maxViews     Int?
+  viewCount    Int         @default(0)
+  downloadCount Int        @default(0)
+  status       ShareStatus @default(ACTIVE)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([documentId])
+  @@index([creatorId])
+  @@map("shares")
+}
+
+enum ShareType {
+  PUBLIC
+  PASSWORD
+  INTERNAL
+}
+
+enum ShareStatus {
+  ACTIVE
+  EXPIRED
+  DISABLED
+}
+
+// 会话表
+model Session {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token       String    @unique
+  refreshToken String   @unique
+  userAgent   String?
+  ip          String?
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+// 审计日志表
+model AuditLog {
+  id          String    @id @default(uuid())
+  userId      String?
+  user        User?     @relation(fields: [userId], references: [id])
+  action      String
+  module      String
+  resourceType String?
+  resourceId  String?
+  details     Json?
+  ip          String?
+  userAgent   String?
+  status      String
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([module])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// 系统配置表
+model SystemConfig {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     Json
+  category  String
+  description String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@map("system_configs")
+}
+
+// ── 档案分类体系 ──
+model ArchiveCategory {
+  id          String   @id @default(uuid())
+  name        String
+  code        String   @unique
+  parentId    String?
+  parent      ArchiveCategory?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children    ArchiveCategory[] @relation("CategoryTree")
+  level       Int      @default(1)
+  sortOrder   Int      @default(0)
+  description String?
+  isEnabled   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([parentId])
+  @@index([code])
+  @@map("archive_categories")
+}
+
+// ── 借阅工作流配置 ──
+model BorrowWorkflowConfig {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  isDefault   Boolean  @default(false)
+  isEnabled   Boolean  @default(true)
+  nodes       BorrowWorkflowNode[]
+  requests    BorrowRequest[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("borrow_workflow_configs")
+}
+
+// 工作流审批节点
+model BorrowWorkflowNode {
+  id            String   @id @default(uuid())
+  workflowId    String
+  workflow      BorrowWorkflowConfig @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  name          String
+  nodeOrder     Int
+  approverType  String   // USER / ROLE / DEPARTMENT_HEAD
+  approverValue String?
+  isRequired    Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([workflowId])
+  @@map("borrow_workflow_nodes")
+}
+
+enum BorrowRequestStatus {
+  PENDING
+  IN_PROGRESS
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ApprovalAction {
+  APPROVE
+  REJECT
+}
+
+// 借阅申请单
+model BorrowRequest {
+  id               String   @id @default(uuid())
+  archiveId        String
+  archive          PhysicalArchive @relation(fields: [archiveId], references: [id])
+  applicantId      String
+  applicant        User     @relation("BorrowApplicant", fields: [applicantId], references: [id])
+  workflowId       String?
+  workflow         BorrowWorkflowConfig? @relation(fields: [workflowId], references: [id])
+  status           BorrowRequestStatus @default(PENDING)
+  borrowReason     String?
+  expectedBorrowAt DateTime?
+  expectedReturnAt DateTime?
+  currentNodeOrder Int      @default(1)
+  completedAt      DateTime?
+  approvalRecords  BorrowApprovalRecord[]
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([archiveId])
+  @@index([applicantId])
+  @@index([status])
+  @@map("borrow_requests")
+}
+
+// 审批记录
+model BorrowApprovalRecord {
+  id           String   @id @default(uuid())
+  requestId    String
+  request      BorrowRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  nodeOrder    Int
+  nodeName     String
+  approverId   String
+  approver     User     @relation("BorrowApprover", fields: [approverId], references: [id])
+  action       ApprovalAction
+  comment      String?
+  signatureUrl String?
+  createdAt    DateTime @default(now())
+
+  @@index([requestId])
+  @@map("borrow_approval_records")
+}
+
+// 审批待办通知
+model ApprovalTodo {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String   // BORROW_APPROVAL
+  referenceId String   // BorrowRequest.id
+  title       String
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, isRead])
+  @@index([referenceId])
+  @@map("approval_todos")
+}
+
+// ── 实体档案附件 ──
+model PhysicalArchiveAttachment {
+  id            String   @id @default(uuid())
+  archiveId     String
+  archive       PhysicalArchive @relation(fields: [archiveId], references: [id], onDelete: Cascade)
+  fileName      String
+  fileExtension String?
+  fileSize      BigInt
+  mimeType      String?
+  storagePath   String
+  md5           String?
+  uploaderId    String
+  uploader      User    @relation("ArchiveAttachmentUploader", fields: [uploaderId], references: [id])
+  remark        String?
+  sortOrder     Int     @default(0)
+  createdAt     DateTime @default(now())
+
+  @@index([archiveId])
+  @@map("physical_archive_attachments")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 文档审查模块
+// ══════════════════════════════════════════════════════════════════════════════
+
+// 文档审查类型
+enum DocumentReviewType {
+  CONTRACT          // 合同
+  LAWYER_LETTER     // 律师函
+  COLLECTION_LETTER // 催款函
+  AGREEMENT         // 协议
+  NOTICE            // 通知
+  OTHER             // 其他
+}
+
+// 审查状态
+enum ReviewStatus {
+  DRAFT             // 草稿
+  AI_REVIEWING      // AI审查中
+  PENDING           // 待审批
+  IN_PROGRESS       // 审批中
+  APPROVED          // 已通过
+  REJECTED          // 已驳回
+  CANCELLED         // 已取消
+}
+
+// AI审查状态
+enum AIReviewStatus {
+  PENDING           // 待审查
+  PROCESSING        // 审查中
+  COMPLETED         // 已完成
+  FAILED            // 失败
+}
+
+// 标注类型
+enum AnnotationType {
+  RISK          // 风险点
+  KEY_POINT     // 关键点
+  GAP           // 漏洞/缺失项
+  COMPLIANCE    // 合规性问题
+  SUGGESTION    // 建议
+}
+
+// 标注状态
+enum AnnotationStatus {
+  ACTIVE        // 活跃
+  RESOLVED      // 已解决
+  IGNORED       // 已忽略
+}
+
+// 文档审查主表
+model DocumentReview {
+  id                String                @id @default(uuid())
+  title             String                // 文件标题
+  documentType      DocumentReviewType    // 文件类型
+  initiatorId       String                // 发起人ID
+  initiator         User                  @relation("ReviewInitiator", fields: [initiatorId], references: [id])
+  departmentId      String?               // 发起部门ID
+  department        Department?           @relation(fields: [departmentId], references: [id])
+  companyCode       String?               // 发起公司代码
+  status            ReviewStatus          @default(DRAFT)
+  workflowId        String?               // 关联工作流ID
+  workflow          ReviewWorkflowConfig? @relation(fields: [workflowId], references: [id])
+  currentNodeOrder  Int                   @default(1)
+
+  // AI审查结果
+  aiReviewStatus    AIReviewStatus?       // AI审查状态
+  aiReviewResult    Json?                 // AI审查结果（JSON格式）
+  aiReviewedAt      DateTime?             // AI审查时间
+
+  // 审批相关
+  approvalRecords   ReviewApprovalRecord[]
+
+  // 附件
+  attachments       DocumentReviewAttachment[]
+
+  // 人工标注
+  annotations       ManualReviewAnnotation[]
+
+  // 时间戳
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  completedAt       DateTime?             // 完成时间
+
+  @@index([initiatorId])
+  @@index([status])
+  @@index([documentType])
+  @@index([companyCode])
+  @@index([createdAt])
+  @@map("document_reviews")
+}
+
+// 文档审查附件表
+model DocumentReviewAttachment {
+  id            String          @id @default(uuid())
+  reviewId      String          // 关联审查记录ID
+  review        DocumentReview  @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  fileName      String          // 原始文件名
+  fileExtension String?         // 文件扩展名
+  fileSize      BigInt          // 文件大小（字节）
+  mimeType      String?         // MIME类型
+  storagePath   String          // 存储路径
+  md5           String          // 文件MD5
+  uploaderId    String          // 上传人ID
+  uploader      User            @relation("ReviewAttachmentUploader", fields: [uploaderId], references: [id])
+
+  // 文件内容提取（用于AI审查）
+  extractedText String?         // 提取的文本内容
+
+  // 关联批注
+  annotations   ManualReviewAnnotation[]
+
+  createdAt     DateTime        @default(now())
+
+  @@index([reviewId])
+  @@map("document_review_attachments")
+}
+
+// 审批记录表
+model ReviewApprovalRecord {
+  id           String          @id @default(uuid())
+  reviewId     String          // 关联审查记录ID
+  review       DocumentReview  @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  nodeOrder    Int             // 审批节点顺序
+  nodeName     String          // 审批节点名称
+  approverId   String          // 审批人ID
+  approver     User            @relation("ReviewApprover", fields: [approverId], references: [id])
+  action       ApprovalAction  // 审批动作
+  comment      String?         // 审批意见
+  signatureUrl String?         // 签名图片URL
+  createdAt    DateTime        @default(now())
+
+  @@index([reviewId])
+  @@map("review_approval_records")
+}
+
+// 工作流配置表
+model ReviewWorkflowConfig {
+  id          String                  @id @default(uuid())
+  name        String                  // 工作流名称
+  description String?                 // 描述
+  documentType DocumentReviewType?    // 适用的文档类型（null表示通用）
+  isDefault   Boolean                 @default(false)
+  isEnabled   Boolean                 @default(true)
+  nodes       ReviewWorkflowNode[]    // 审批节点
+  reviews     DocumentReview[]        // 关联的审查记录
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  @@map("review_workflow_configs")
+}
+
+// 工作流节点表
+model ReviewWorkflowNode {
+  id            String                @id @default(uuid())
+  workflowId    String                // 关联工作流ID
+  workflow      ReviewWorkflowConfig  @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  name          String                // 节点名称
+  nodeOrder     Int                   // 节点顺序
+  approverType  String                // 审批人类型：USER / ROLE / DEPARTMENT_HEAD
+  approverValue String?               // 审批人值（用户ID/角色代码/部门ID）
+  isRequired    Boolean               @default(true)
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  @@index([workflowId])
+  @@map("review_workflow_nodes")
+}
+
+// 人工审查标注表
+model ManualReviewAnnotation {
+  id            String          @id @default(uuid())
+  reviewId      String          // 关联审查记录ID
+  review        DocumentReview  @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  annotatorId   String          // 标注人ID
+  annotator     User            @relation("ManualAnnotator", fields: [annotatorId], references: [id])
+  attachmentId  String?         // 关联附件ID（可选）
+  attachment    DocumentReviewAttachment? @relation(fields: [attachmentId], references: [id], onDelete: SetNull)
+
+  // 标注类型
+  annotationType AnnotationType  // RISK / KEY_POINT / GAP / COMPLIANCE / SUGGESTION
+
+  // 标注内容
+  category      String?         // 类别
+  severity      String?         // 严重程度（风险用）
+  title         String          // 标题
+  description   String          // 描述
+  location      String?         // 位置（页码/段落/行号）
+  suggestion    String?         // 建议
+
+  // 状态
+  status        AnnotationStatus @default(ACTIVE)  // ACTIVE / RESOLVED / IGNORED
+  resolvedBy    String?         // 解决人ID
+  resolvedAt    DateTime?       // 解决时间
+  resolveNote   String?         // 解决说明
+
+  // 优先级
+  priority      Int             @default(0)  // 0-低, 1-中, 2-高, 3-紧急
+
+  // 评论
+  comments      AnnotationComment[]
+
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([reviewId])
+  @@index([annotatorId])
+  @@index([status])
+  @@map("manual_review_annotations")
+}
+
+// 标注评论表
+model AnnotationComment {
+  id            String                  @id @default(uuid())
+  annotationId  String                  // 关联标注ID
+  annotation    ManualReviewAnnotation  @relation(fields: [annotationId], references: [id], onDelete: Cascade)
+  userId        String                  // 评论人ID
+  user          User                    @relation("AnnotationCommenter", fields: [userId], references: [id])
+  content       String                  // 评论内容
+  createdAt     DateTime                @default(now())
+
+  @@index([annotationId])
+  @@map("annotation_comments")
+}

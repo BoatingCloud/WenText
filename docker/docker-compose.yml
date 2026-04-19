@@ -1,0 +1,169 @@
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:16-alpine
+    container_name: wenyu-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: wenyu
+      POSTGRES_PASSWORD: wenyu123
+      POSTGRES_DB: wenyu
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wenyu"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    container_name: wenyu-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MinIO 对象存储
+  minio:
+    image: minio/minio:latest
+    container_name: wenyu-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Elasticsearch 搜索引擎
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+    container_name: wenyu-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+# 后端服务
+  server:
+    build:
+      context: ../server
+      dockerfile: ../docker/Dockerfile.server
+    container_name: wenyu-server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_TYPE: postgresql
+      DATABASE_URL: postgresql://wenyu:wenyu123@postgres:5432/wenyu?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: your-production-jwt-secret-change-this
+      ENCRYPTION_KEY: your-32-character-encryption-key
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: wenyu
+      ELASTICSEARCH_NODE: http://elasticsearch:9200
+      CORS_ORIGIN: http://localhost,http://localhost:80
+      STORAGE_BASE_PATH: /data/storage
+      STORAGE_BACKUP_BASE_PATH: /data/storage-backup
+      ONLYOFFICE_ENABLED: "true"
+      ONLYOFFICE_URL: http://localhost:3001
+      ONLYOFFICE_SERVICE_URL: http://onlyoffice
+      ONLYOFFICE_INTERNAL_SERVER_URL: http://server:3000
+      ONLYOFFICE_JWT_SECRET: viewmatrix
+    volumes:
+      - storage_data:/data/storage
+      - backup_data:/data/storage-backup
+      - logs_data:/var/log/wenyu
+    ports:
+      - "4000:3000"
+
+  # OnlyOffice 在线编辑
+  onlyoffice:
+    image: onlyoffice/documentserver:latest
+    container_name: wenyu-onlyoffice
+    restart: unless-stopped
+    environment:
+      JWT_ENABLED: "false"
+      ALLOW_PRIVATE_IP_ADDRESS: "true"
+      ALLOW_META_IP_ADDRESS: "true"
+    volumes:
+      - onlyoffice_data:/var/www/onlyoffice/Data
+      - onlyoffice_logs:/var/log/onlyoffice
+    ports:
+      - "3001:80"
+
+  # 前端应用
+  client:
+    build:
+      context: ../client
+      dockerfile: ../docker/Dockerfile.client
+    container_name: wenyu-client
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "80:80"
+
+  # 管理后台
+  admin:
+    build:
+      context: ../admin
+      dockerfile: ../docker/Dockerfile.admin
+    container_name: wenyu-admin
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "8080:80"
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  elasticsearch_data:
+  storage_data:
+  backup_data:
+  logs_data:
+  onlyoffice_data:
+  onlyoffice_logs:
+
+networks:
+  default:
+    name: wenyu-network

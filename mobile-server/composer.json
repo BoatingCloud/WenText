@@ -1,0 +1,19 @@
+{
+  "name": "wenyu/mobile-server",
+  "description": "Wenyu mobile API service for announcements, app upgrades, help center and feedback",
+  "type": "project",
+  "license": "MIT",
+  "require": {
+    "php": ">=8.1"
+  },
+  "autoload": {
+    "psr-4": {
+      "MobileServer\\": "src/"
+    }
+  },
+  "scripts": {
+    "serve": "php -S 0.0.0.0:8080 -t public public/index.php",
+    "db:migrate": "php scripts/migrate.php",
+    "db:seed": "php scripts/seed.php"
+  }
+}

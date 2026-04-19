@@ -1,0 +1,41 @@
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# 使用国内 Alpine 镜像源
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+RUN apk add --no-cache openssl
+
+# 使用国内 npm 镜像加速
+RUN npm config set registry https://registry.npmmirror.com
+
+COPY package*.json ./
+COPY prisma ./prisma/
+
+RUN npm install --no-audit --no-fund
+
+COPY . .
+
+RUN npm run db:generate
+RUN npm run build
+
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+# 使用国内 Alpine 镜像源
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+RUN apk add --no-cache openssl
+
+ENV NODE_ENV=production
+
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/prisma ./prisma
+
+RUN mkdir -p /data/storage /var/log/wenyu
+
+EXPOSE 3000
+
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
