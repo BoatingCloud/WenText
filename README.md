@@ -121,6 +121,9 @@ npm run dev
 
 本仓库采用 [MIT License](./LICENSE)。
 
+## 社区
+学 AI，上 L 站 — [LinuxDo](https://linux.do)
+
 ## 捐赠
 如果您可以的话，欢迎您捐赠
 [PayPal](http://paypal.me/viewmatrix)
