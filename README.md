@@ -76,6 +76,23 @@ npm run dev
 - [Docker 说明](./docker/README.md)
 - [移动端服务说明](./mobile-server/README.md)
 
+## 自动构建镜像
+
+仓库已提供 GitHub Actions 工作流：[.github/workflows/docker-images.yml](./.github/workflows/docker-images.yml)。
+
+- `pull request -> main`：只执行镜像构建校验，不推送
+- `push -> main`：自动构建并推送 `server`、`client`、`admin` 三个镜像到 GHCR
+- `push tag(v*)`：自动构建并推送版本标签镜像
+- `workflow_dispatch`：支持手动触发
+
+推送后的镜像命名规则为：
+
+- `ghcr.io/<owner>/<repo>-server`
+- `ghcr.io/<owner>/<repo>-client`
+- `ghcr.io/<owner>/<repo>-admin`
+
+首次使用前，请在仓库设置中确认 GitHub Actions 对 packages 具有写权限。
+
 ## 主系统模块
 
 ### 后端 `server/`
