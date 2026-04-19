@@ -123,7 +123,7 @@ npm run dev
 
 ## 捐赠
 如果您可以的话，欢迎您捐赠
-[PayPal](http://paypal.me/lixigang)
+[PayPal](http://paypal.me/viewmatrix)
 <img width="1170" height="1755" alt="35628937bfbec4027616135f6187e181" src="https://github.com/user-attachments/assets/d43e2ac1-2634-439d-b14e-40dc98a2ef46" />
 
 ## Star History
