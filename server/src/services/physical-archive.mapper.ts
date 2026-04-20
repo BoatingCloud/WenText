@@ -1,4 +1,5 @@
 import type { PhysicalArchive } from '@prisma/client';
+import { toJsonStringArray } from '../utils/json-array.js';
 
 type SerializedPhysicalArchive = Omit<PhysicalArchive, 'fileSizeBytes'> & {
   fileSizeBytes: string | null;
@@ -9,6 +10,10 @@ export function serializePhysicalArchive<T extends PhysicalArchive>(
 ): Omit<T, 'fileSizeBytes'> & { fileSizeBytes: string | null } {
   return {
     ...archive,
+    keywords: toJsonStringArray(archive.keywords),
+    tags: toJsonStringArray(archive.tags),
+    versionHistory: toJsonStringArray(archive.versionHistory),
+    relatedArchiveIds: toJsonStringArray(archive.relatedArchiveIds),
     fileSizeBytes: archive.fileSizeBytes != null
       ? archive.fileSizeBytes.toString()
       : null,

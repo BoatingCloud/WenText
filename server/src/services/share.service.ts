@@ -1,7 +1,10 @@
 import bcrypt from 'bcryptjs';
 import { getPrisma } from '../config/database.js';
 import { NotFoundError, ValidationError, AuthorizationError } from '../utils/errors.js';
+import { asInputJsonArray, toJsonStringArray } from '../utils/json-array.js';
 import type { Share, ShareType, ShareStatus, Prisma } from '@prisma/client';
+
+type ShareRecord = Omit<Share, 'permissions'> & { permissions: string[] };
 
 export interface CreateShareInput {
   documentId: string;
@@ -22,7 +25,7 @@ export interface ShareQueryOptions {
 }
 
 export interface ShareAccessResult {
-  share: Share;
+  share: ShareRecord;
   document: {
     id: string;
     name: string;
@@ -37,7 +40,7 @@ export class ShareService {
   private static readonly CODE_LENGTH = 8;
   private static readonly SALT_ROUNDS = 10;
 
-  static async create(input: CreateShareInput): Promise<Share> {
+  static async create(input: CreateShareInput): Promise<ShareRecord> {
     const prisma = getPrisma();
 
     const document = await prisma.document.findUnique({
@@ -74,18 +77,21 @@ export class ShareService {
         creatorId: input.creatorId,
         shareType: input.shareType,
         password: hashedPassword,
-        permissions: input.permissions,
+        permissions: asInputJsonArray(input.permissions),
         expiresAt: input.expiresAt,
         maxViews: input.maxViews,
       },
     });
 
-    return share;
+    return {
+      ...share,
+      permissions: toJsonStringArray(share.permissions),
+    };
   }
 
-  static async findByCode(code: string): Promise<Share | null> {
+  static async findByCode(code: string): Promise<ShareRecord | null> {
     const prisma = getPrisma();
-    return prisma.share.findUnique({
+    const share = await prisma.share.findUnique({
       where: { code },
       include: {
         document: {
@@ -104,11 +110,18 @@ export class ShareService {
         },
       },
     });
+
+    if (!share) return null;
+
+    return {
+      ...share,
+      permissions: toJsonStringArray(share.permissions),
+    };
   }
 
-  static async findById(id: string): Promise<Share | null> {
+  static async findById(id: string): Promise<ShareRecord | null> {
     const prisma = getPrisma();
-    return prisma.share.findUnique({
+    const share = await prisma.share.findUnique({
       where: { id },
       include: {
         document: true,
@@ -117,10 +130,17 @@ export class ShareService {
         },
       },
     });
+
+    if (!share) return null;
+
+    return {
+      ...share,
+      permissions: toJsonStringArray(share.permissions),
+    };
   }
 
   static async findAll(options: ShareQueryOptions = {}): Promise<{
-    shares: Share[];
+    shares: ShareRecord[];
     total: number;
     page: number;
     pageSize: number;
@@ -159,7 +179,15 @@ export class ShareService {
       prisma.share.count({ where }),
     ]);
 
-    return { shares, total, page, pageSize };
+    return {
+      shares: shares.map((share) => ({
+        ...share,
+        permissions: toJsonStringArray(share.permissions),
+      })),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   static async access(code: string, password?: string): Promise<ShareAccessResult> {
@@ -265,7 +293,7 @@ export class ShareService {
     await prisma.share.delete({ where: { id } });
   }
 
-  static async checkPermission(share: Share, permission: string): Promise<boolean> {
+  static async checkPermission(share: ShareRecord, permission: string): Promise<boolean> {
     return share.permissions.includes(permission);
   }
 

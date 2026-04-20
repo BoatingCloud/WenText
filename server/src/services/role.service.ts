@@ -1,6 +1,7 @@
 import { getPrisma } from '../config/database.js';
 import { NotFoundError, ConflictError } from '../utils/errors.js';
 import { cacheGet, cacheSet, cacheDel } from '../config/redis.js';
+import { asInputJsonArray, toJsonStringArray } from '../utils/json-array.js';
 import type { Role, Permission, Prisma } from '@prisma/client';
 
 export interface CreateRoleInput {
@@ -399,9 +400,9 @@ export class RoleService {
       repositoryId: row.repositoryId,
       repositoryName: row.repository.name,
       repositoryCode: row.repository.code,
-      permissions: row.permissions,
+      permissions: toJsonStringArray(row.permissions),
       dataScope: row.dataScope,
-      scopePaths: row.scopePaths,
+      scopePaths: toJsonStringArray(row.scopePaths),
     }));
   }
 
@@ -433,9 +434,9 @@ export class RoleService {
           repositoryId: entry.repositoryId,
           targetType: 'ROLE' as const,
           targetId: roleId,
-          permissions: entry.permissions,
+          permissions: asInputJsonArray(entry.permissions),
           dataScope: entry.dataScope ?? 'ALL',
-          scopePaths: entry.scopePaths ?? [],
+          scopePaths: asInputJsonArray(entry.scopePaths),
         }));
 
       if (createData.length > 0) {
@@ -474,7 +475,7 @@ export class RoleService {
     return permissions.map((p) => ({
       companyCode: p.companyCode,
       companyName: (companyMap.get(p.companyCode) as string) || p.companyCode,
-      permissions: p.permissions,
+      permissions: toJsonStringArray(p.permissions),
     }));
   }
 
@@ -502,7 +503,7 @@ export class RoleService {
         .map((entry) => ({
           roleId,
           companyCode: entry.companyCode,
-          permissions: entry.permissions,
+          permissions: asInputJsonArray(entry.permissions),
         }));
 
       if (createData.length > 0) {

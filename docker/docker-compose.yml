@@ -81,16 +81,14 @@ services:
     container_name: wenyu-server
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     environment:
       NODE_ENV: production
       PORT: 3000
-      DB_TYPE: postgresql
-      DATABASE_URL: postgresql://wenyu:wenyu123@postgres:5432/wenyu?schema=public
-      REDIS_URL: redis://redis:6379
+      DB_TYPE: ${DB_TYPE:-postgresql}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://wenyu:wenyu123@postgres:5432/wenyu?schema=public}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       JWT_SECRET: your-production-jwt-secret-change-this
       ENCRYPTION_KEY: your-32-character-encryption-key
       MINIO_ENDPOINT: minio

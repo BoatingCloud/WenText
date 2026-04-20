@@ -7,6 +7,7 @@ import { StorageFactory, StorageAdapterConfig, MirroredStorageAdapter } from '..
 import { cacheGet, cacheSet, cacheDel } from '../config/redis.js';
 import { SystemConfigService } from './system-config.service.js';
 import { UserDataPermissionService } from './user-data-permission.service.js';
+import { asInputJsonArray, toJsonStringArray } from '../utils/json-array.js';
 import type { Repository, StorageType, RepoStatus, Prisma, PermissionTarget, DataScope } from '@prisma/client';
 
 export interface CreateRepositoryInput {
@@ -423,9 +424,9 @@ export class RepositoryService {
           repositoryId: repoId,
           targetType: p.targetType,
           targetId: p.targetId,
-          permissions: p.permissions,
+          permissions: asInputJsonArray(p.permissions),
           dataScope: p.dataScope || 'ALL',
-          scopePaths: p.scopePaths || [],
+          scopePaths: asInputJsonArray(p.scopePaths),
         })),
       });
     }
@@ -442,10 +443,9 @@ export class RepositoryService {
   ): Promise<boolean> {
     const prisma = getPrisma();
 
-    const permission = await prisma.repoPermission.findFirst({
+    const permissions = await prisma.repoPermission.findMany({
       where: {
         repositoryId: repoId,
-        permissions: { has: requiredPermission },
         OR: [
           { targetType: 'USER', targetId: userId },
           { targetType: 'ROLE', targetId: { in: userRoleIds } },
@@ -456,7 +456,7 @@ export class RepositoryService {
       },
     });
 
-    return permission !== null;
+    return permissions.some((entry) => toJsonStringArray(entry.permissions).includes(requiredPermission));
   }
 
   static async getStorageAdapter(repo: Repository) {

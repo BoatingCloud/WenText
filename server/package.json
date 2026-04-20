@@ -9,10 +9,12 @@
     "start": "node dist/index.js",
     "lint": "eslint src --ext .ts",
     "test": "jest",
-    "db:migrate": "prisma migrate dev",
-    "db:generate": "prisma generate",
-    "db:push": "prisma db push",
-    "db:studio": "prisma studio",
+    "db:migrate": "node ./scripts/prisma-cli.mjs migrate-dev",
+    "db:deploy": "node ./scripts/prisma-cli.mjs migrate-deploy",
+    "db:generate": "node ./scripts/prisma-cli.mjs generate",
+    "db:validate": "node ./scripts/prisma-cli.mjs validate",
+    "db:push": "node ./scripts/prisma-cli.mjs push",
+    "db:studio": "node ./scripts/prisma-cli.mjs studio",
     "db:seed": "tsx prisma/seed.ts"
   },
   "prisma": {
